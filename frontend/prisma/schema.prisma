@@ -1,0 +1,142 @@
+// generator + datasource
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String              @id @default(cuid())
+  email             String              @unique
+  passwordHash      String
+  role              String              @default("user")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  githubConnection  GitHubConnection?
+  repositories      RepositorySelection[]
+  tasks             Task[]
+  pullRequests      PullRequest[]
+  modelUsage        ModelUsage[]
+  auditLogs         AuditLog[]
+}
+
+model GitHubConnection {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  encryptedToken        String   @db.Text
+  githubUsername        String?
+  scopes                String?
+  tokenLastValidatedAt  DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model RepositorySelection {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoFullName   String
+  defaultBranch  String
+  selectedBranch String
+  lastOpenedAt   DateTime @default(now())
+
+  @@unique([userId, repoFullName])
+  @@index([userId])
+}
+
+model Task {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoFullName    String
+  baseBranch      String
+  workingBranch   String?
+  prompt          String    @db.Text
+  status          String    @default("queued")
+  planJson        String?   @db.LongText
+  errorMessage    String?   @db.Text
+  pullRequestUrl  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+  steps           TaskStep[]
+  changes         CodeChange[]
+  pullRequest     PullRequest?
+  modelUsage      ModelUsage[]
+
+  @@index([userId])
+}
+
+model TaskStep {
+  id         String   @id @default(cuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentName  String
+  status     String
+  summary    String?  @db.Text
+  logs       String?  @db.LongText
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([taskId])
+}
+
+model CodeChange {
+  id             String   @id @default(cuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  filePath       String
+  beforeContent  String?  @db.LongText
+  afterContent   String   @db.LongText
+  diff           String?  @db.LongText
+  approved       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model PullRequest {
+  id            String   @id @default(cuid())
+  taskId        String   @unique
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoFullName  String
+  branchName    String
+  prUrl         String
+  status        String   @default("open")
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ModelUsage {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId         String?
+  task           Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  model          String
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  estimatedCost Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action       String
+  metadataJson String?  @db.LongText
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}

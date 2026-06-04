@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  db:
+    image: mariadb:11
+    container_name: amarktai_db
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-amarktai_coder}
+      MARIADB_USER: ${MYSQL_USER:-amarktai}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-amarktai_dev_pw}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
+    volumes:
+      - amarktai_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: amarktai_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://${MYSQL_USER:-amarktai}:${MYSQL_PASSWORD:-amarktai_dev_pw}@db:3306/${MYSQL_DATABASE:-amarktai_coder}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      GENX_API_KEY: ${GENX_API_KEY}
+      GENX_BASE_URL: ${GENX_BASE_URL:-https://query.genx.sh/v1}
+      GENX_DEFAULT_CHAT_MODEL: ${GENX_DEFAULT_CHAT_MODEL:-gpt-4o-mini}
+      GENX_DEFAULT_CODING_MODEL: ${GENX_DEFAULT_CODING_MODEL:-gpt-4o}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  amarktai_db_data:

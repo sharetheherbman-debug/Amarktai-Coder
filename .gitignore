@@ -1,0 +1,19 @@
+node_modules
+.next
+.env
+.env.local
+.DS_Store
+*.log
+.vercel
+dist
+.cache
+.turbo
+
+# Prisma artifacts
+src/generated
+prisma/dev.db
+
+# Docker volumes
+.data
+frontend/node_modules/@next/swc-linux-arm64-musl/next-swc.linux-arm64-musl.node
+frontend/node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node

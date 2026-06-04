@@ -1,0 +1,54 @@
+{
+  "summary": "Backend-only test pass for Amarktai Coder. 28 pytest cases cover health, auth (register/login/logout/me), GitHub (status/connect/repos + Zod validation on branch/commit/pull-request), AI (status/models/chat/task/task-run) under the intentionally-blank GENX_API_KEY, pull-requests, multi-tenancy across two users, middleware /dashboard redirect, and landing/login/register HTML markers. Found and fixed one CRITICAL session-leak bug in the FastAPI proxy. After the fix all 28 tests pass (100%).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/app/backend/server.py (FastAPI ingress proxy)",
+        "issue": "CRITICAL SESSION LEAK (already fixed by testing agent). The proxy used a single shared httpx.AsyncClient with a default cookie jar. Set-Cookie values from upstream /api/auth/register and /api/auth/login responses were stored in that shared jar and then automatically attached to every subsequent outbound request — including requests from completely unrelated users / unauthenticated curl callers. Reproduced with `curl https://<preview>/api/me` returning HTTP 200 with another user's identity after any login. Direct hits to localhost:3000 correctly returned 401. Fix applied: replaced the shared client with a fresh httpx.AsyncClient per request, while keeping connection pooling via a shared AsyncHTTPTransport. After fix: 28/28 tests pass and /api/me without a cookie correctly returns 401.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "frontend/.env",
+        "issue": "REACT_APP_BACKEND_URL is not set in frontend/.env (only DATABASE_URL/JWT_SECRET/etc are). The system prompt mandates REACT_APP_BACKEND_URL as a PROTECTED variable. Tests had to source the URL from the review-request notes (https://amarktai-coder.preview.emergentagent.com). Recommend the main agent add REACT_APP_BACKEND_URL=<preview URL> to /app/frontend/.env so the frontend code and future test runs pick it up automatically."
+      },
+      {
+        "endpoint": "/api/me",
+        "issue": "When unauthenticated, /api/me returns 401 with body {\"user\":null} (no error field). That matches the route code intentionally. Not a bug, but main agent should be aware the body shape differs from other 401 endpoints which return {\"error\":\"unauthorized\"}."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_amarktai_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add REACT_APP_BACKEND_URL=https://amarktai-coder.preview.emergentagent.com to /app/frontend/.env (PROTECTED variable expected by the platform contract).",
+    "Review and keep the proxy fix in /app/backend/server.py (per-request httpx.AsyncClient + shared transport). DO NOT revert to a shared AsyncClient — it leaks sessions globally.",
+    "Optional: add a comment / unit test in the proxy to guard against re-introducing a shared cookie jar."
+  ],
+  "critical_code_review_comments": [
+    "Severe: shared httpx.AsyncClient in a proxy will silently leak Set-Cookie/Authorization state across users. Any reverse-proxy code should either disable cookie persistence or use one client per request.",
+    "/api/auth/register stores a bcrypt hash via lib/auth.hashPassword — encryption key is read from ENCRYPTION_KEY in /app/frontend/.env and is a valid 64-hex (32-byte) string. AES-256-GCM helper smoke test passes implicitly because register/login round-trip succeeds and /api/github/connect with a bad token reaches the validateToken path (no ENCRYPTION_KEY crash).",
+    "Zod schemas on /api/github/{branch,commit,pull-request} correctly reject malformed bodies with 400 — confirmed by 3 explicit tests.",
+    "Multi-tenancy verified: user B never sees user A's tasks, PRs, or GitHub status after the proxy fix.",
+    "AI task run path correctly returns 400 with GENX_API_KEY error when the key is blank and the task is NOT falsely marked completed (stays 'queued')."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (fixed shared-cookie-jar session leak by using per-request httpx.AsyncClient with a shared AsyncHTTPTransport)",
+    "/app/backend/tests/test_amarktai_backend.py (new pytest suite, 28 tests, JUnit XML)"
+  ],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Dynamically registered via POST /api/auth/register with email pattern test_<ts>_<rand>@amarktai.dev and password 'Testpass123!' per /app/memory/test_credentials.md.",
+  "seed_data_creation": "No seed data created. Every test registers fresh users with TEST-pattern emails. No teardown is performed (DB is MariaDB and tests use unique emails per run).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Tests live in /app/backend/tests/test_amarktai_backend.py. Run with: REACT_APP_BACKEND_URL=https://amarktai-coder.preview.emergentagent.com python -m pytest backend/tests/test_amarktai_backend.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml . The proxy fix in /app/backend/server.py is REQUIRED for unauthenticated 401 tests to pass — do not revert it. GENX_API_KEY remains intentionally blank; AI endpoints must keep returning {configured:false,...} / HTTP 400 with the GENX_API_KEY error message, never 500.",
+  "rca of the issue": "RCA of session leak: /app/backend/server.py created a single module-level httpx.AsyncClient. httpx.AsyncClient maintains its own cookie jar that (a) extracts Set-Cookie from every upstream response and (b) merges those cookies onto every outbound request that doesn't already carry an overriding Cookie header. When user A registered/logged in, the upstream Next.js Set-Cookie 'amarktai_session=<jwt>' was stored in the proxy's jar. Any later request from an unrelated client (curl / a fresh requests.Session) carried no Cookie header, so the proxy auto-attached A's session cookie, causing every endpoint that calls getCurrentUser() to authenticate as user A. Reproduction: register user A, then `curl https://<preview>/api/me` from a clean shell → HTTP 200 with A's user object. Direct call to http://127.0.0.1:3000/api/me correctly returned 401, confirming the leak is in the proxy layer, not Next.js. Mitigation: replaced the shared client with a fresh httpx.AsyncClient per request (kept a shared AsyncHTTPTransport for connection pooling). After fix /api/me with no cookies returns 401 and all unauth tests pass."
+}
